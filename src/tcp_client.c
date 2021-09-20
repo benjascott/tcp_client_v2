@@ -2,6 +2,25 @@
 
 #include "tcp_client.h"
 
+#include <sys/types.h>
+#include <sys/socket.h>
+
+/*
+print message to clarify usage of the commandline tool
+*/
+void tcp_client_printHelpMessage() {
+    printf("\nUsage: tcp_client [--help] [-v] [-h HOST] [-p PORT] ACTION MESSAGE\n\n");
+    printf("Arguments:\n  ACTION\tMust be uppercase, lowercase, title-case,\n\t\treverse, or shuffle.\n  MESSAGE\tMessage to send to the server\n");
+    printf("Options:\n  --help\n  -v, --verbose\n  --host HOSTNAME, -h HOSTNAME\n  --port PORT, -p PORT\n");
+}
+
+void tcp_client_allocate_config(Config *config) {
+    config->host = malloc(sizeof(char)*(100+1));
+    config->port = malloc(sizeof(char)*(5+1));
+    config->action = malloc(sizeof(char)*(12+1));
+    config->message = malloc(sizeof(char)*(1024+1));
+    log_trace("memory allocated");
+}
 
 /*
 Description:
@@ -13,7 +32,64 @@ Arguments:
 Return value:
     Returns a 1 on failure, 0 on success
 */
-int tcp_client_parse_arguments(int argc, char *argv[], Config *config) {}
+int tcp_client_parse_arguments(int argc, char *argv[], Config *config) {
+    int c;
+
+    strcpy(config->port, TCP_CLIENT_DEFAULT_PORT);
+    strcpy(config->host, TCP_CLIENT_DEFAULT_HOST);
+    log_trace("enter parse args");
+    while(1) {
+        int option_index = 0;
+        static struct option long_options[] = {
+            {"help", no_argument, NULL, 0},
+            {"verbose", no_argument, NULL, 'v'},
+            {"host", required_argument, NULL, 'h'},
+            {"port", required_argument, NULL, 'p'},
+            {NULL, 0, NULL, 0}
+        };
+        c = getopt_long(argc, argv, "vh:p:", long_options, &option_index);
+        if(c == -1) {
+            break;
+        }
+
+        switch (c) {
+            case 0:
+                tcp_client_printHelpMessage();
+                break;
+            case 'v':
+                log_set_level(LOG_TRACE);
+                break;
+            case 'h':
+                log_info("host: %s", optarg);
+                strcpy(config->host, optarg);
+                break;
+            case 'p':
+                log_info("port: %s", optarg);
+                strcpy(config->port, optarg);
+                break;
+            case '?':
+                log_info("unrecognized option, exiting program");
+                tcp_client_printHelpMessage();
+                return 1;
+        }
+    }
+    if (optind < argc) {
+        strcpy(config->action, argv[optind++]);
+        if(strcmp(config->action, "reverse") && strcmp(config->action, "uppercase") && strcmp(config->action, "lowercase") && strcmp(config->action, "title-case") && strcmp(config->action, "shuffle")) {
+            log_warn("action: %s not valid\n", config->action);
+            return 1;
+        }
+        strcpy(config->message, argv[optind++]);
+        log_info("Action: %s", config->action);
+        log_info("Message to be sent: %s", config->message);
+    }
+    else {
+        log_debug("Incorrect number of arguments");
+        tcp_client_printHelpMessage();
+        return 1;
+    }
+    return 0;
+}
 
 ///////////////////////////////////////////////////////////////////////
 /////////////////////// SOCKET RELATED FUNCTIONS //////////////////////
@@ -27,33 +103,94 @@ Arguments:
 Return value:
     Returns the socket file descriptor or -1 if an error occurs.
 */
-int tcp_client_connect(Config config) {}
+int tcp_client_connect(Config config) {
+    struct addrinfo hints, *servinfo, *p;
+    int sockfd;
+
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    getaddrinfo(config.host, config.port, &hints, &servinfo);
+
+    log_info("Searching for a socket to connect to");
+    for(p = servinfo; p != NULL; p = p->ai_next) {
+        if ((sockfd = socket(p->ai_family, p->ai_socktype,
+                p->ai_protocol)) == -1) {
+                continue;
+        }
+        log_info("Attempting to connect to a socket");
+        if (connect(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
+            close(sockfd);
+            continue;
+        }
+        break;
+    }
+    freeaddrinfo(servinfo);
+    if (p == NULL) {
+        log_debug("No available sockets to connect to");
+        return -1;
+    }
+    log_info("Connected to a socket");
+    return sockfd;
+}
+
+/*
+Helper function that assures that all data is sent before returning
+*/
+int sendAll(int sockfd, Config config) {
+    int len, sent;
+    char *msg = malloc(strlen(config.action)+4+strlen(config.message));
+    char str[5];
+    sprintf(str, "%lu", strlen(config.message));
+    strcpy(msg, config.action);
+    strcat(msg, " ");
+    strcat(msg, str);
+    strcat(msg, " ");
+    strcat(msg, config.message);
+    len = strlen(msg);
+
+    log_info("Message being sent to the server: %s", msg);
+    sent = send(sockfd, msg, len, 0);
+    if(sent == -1) {
+        log_warn("Data was not successfully sent to the server");
+        return -1;
+    }
+    return 0;
+}
 
 /*
 Description:
     Creates and sends request to server using the socket and configuration.
 Arguments:
     int sockfd: Socket file descriptor
-    char *action: The action that will be sent
-    char *message: The message that will be sent
+    Config config: A config struct with the necessary information.
 Return value:
     Returns a 1 on failure, 0 on success
 */
-int tcp_client_send_request(int sockfd, char *action, char *message) {}
+int tcp_client_send_request(int sockfd, char *action, char *message) {
+    log_info("Sending data to the server");
+    return sendAll(sockfd, config);
+}
 
 /*
 Description:
-    Receives the response from the server. The caller must provide a function pointer that handles
-the response and returns a true value if all responses have been handled, otherwise it returns a
-    false value. After the response is handled by the handle_response function pointer, the response
-    data can be safely deleted. The string passed to the function pointer must be null terminated.
+    Receives the response from the server. The caller must provide an already allocated buffer.
 Arguments:
     int sockfd: Socket file descriptor
-    int (*handle_response)(char *): A callback function that handles a response
+    char *buf: An already allocated buffer to receive the response in
+    int buf_size: The size of the allocated buffer
 Return value:
     Returns a 1 on failure, 0 on success
 */
-int tcp_client_receive_response(int sockfd, int (*handle_response)(char *)) {}
+int tcp_client_receive_response(int sockfd, int (*handle_response)(char *)) {
+    // log_info("Receiving data from the server");
+    // int numbytes = recv(sockfd, buf, buf_size, 0);
+    // if(numbytes == -1) {
+    //     return 1;
+    // }
+    // return 0;
+}
 
 /*
 Description:
@@ -63,11 +200,15 @@ Arguments:
 Return value:
     Returns a 1 on failure, 0 on success
 */
-int tcp_client_close(int sockfd) {}
-
-///////////////////////////////////////////////////////////////////////
-//////////////////////// FILE RELATED FUNCTIONS ///////////////////////
-///////////////////////////////////////////////////////////////////////
+int tcp_client_close(int sockfd) {
+    log_info("Closing the socket connection");
+    if(close(sockfd) == -1) {
+        log_warn("Failed to close connection");
+        return 1;
+    }
+    log_info("Successfully closed socket");
+    return 0;
+}
 
 /*
 Description:
