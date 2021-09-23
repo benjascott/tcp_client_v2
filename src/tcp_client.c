@@ -14,11 +14,11 @@ void tcp_client_printHelpMessage() {
     printf("Options:\n  --help\n  -v, --verbose\n  --host HOSTNAME, -h HOSTNAME\n  --port PORT, -p PORT\n");
 }
 
+// allocate memory for the configuration details
 void tcp_client_allocate_config(Config *config) {
     config->host = malloc(sizeof(char)*(100+1));
     config->port = malloc(sizeof(char)*(5+1));
-    config->action = malloc(sizeof(char)*(12+1));
-    config->message = malloc(sizeof(char)*(1024+1));
+    config->file = malloc(sizeof(char)*(100+1));
     log_trace("memory allocated");
 }
 
@@ -74,15 +74,10 @@ int tcp_client_parse_arguments(int argc, char *argv[], Config *config) {
         }
     }
     if (optind < argc) {
-        strcpy(config->action, argv[optind++]);
-        if(strcmp(config->action, "reverse") && strcmp(config->action, "uppercase") && strcmp(config->action, "lowercase") && strcmp(config->action, "title-case") && strcmp(config->action, "shuffle")) {
-            log_warn("action: %s not valid\n", config->action);
-            return 1;
-        }
-        strcpy(config->message, argv[optind++]);
-        log_info("Action: %s", config->action);
-        log_info("Message to be sent: %s", config->message);
+        strcpy(config->file, argv[optind++]);
+        log_info("File: %s", config->file);    
     }
+
     else {
         log_debug("Incorrect number of arguments");
         tcp_client_printHelpMessage();
@@ -138,16 +133,17 @@ int tcp_client_connect(Config config) {
 /*
 Helper function that assures that all data is sent before returning
 */
-int sendAll(int sockfd, Config config) {
+int sendAll(int sockfd, char *action, char *message) {
+    
     int len, sent;
-    char *msg = malloc(strlen(config.action)+4+strlen(config.message));
+    char *msg = malloc(strlen(action)+4+strlen(message));
     char str[5];
-    sprintf(str, "%lu", strlen(config.message));
-    strcpy(msg, config.action);
+    sprintf(str, "%lu", strlen(message));
+    strcpy(msg, action);
     strcat(msg, " ");
     strcat(msg, str);
     strcat(msg, " ");
-    strcat(msg, config.message);
+    strcat(msg, message);
     len = strlen(msg);
 
     log_info("Message being sent to the server: %s", msg);
@@ -170,7 +166,7 @@ Return value:
 */
 int tcp_client_send_request(int sockfd, char *action, char *message) {
     log_info("Sending data to the server");
-    return sendAll(sockfd, config);
+    return sendAll(sockfd, action, message);
 }
 
 /*
@@ -183,14 +179,14 @@ Arguments:
 Return value:
     Returns a 1 on failure, 0 on success
 */
-int tcp_client_receive_response(int sockfd, int (*handle_response)(char *)) {
-    // log_info("Receiving data from the server");
-    // int numbytes = recv(sockfd, buf, buf_size, 0);
-    // if(numbytes == -1) {
-    //     return 1;
-    // }
-    // return 0;
-}
+// int tcp_client_receive_response(int sockfd, int (*handle_response)(char *)) {
+//     // log_info("Receiving data from the server");
+//     // int numbytes = recv(sockfd, buf, buf_size, 0);
+//     // if(numbytes == -1) {
+//     //     return 1;
+//     // }
+//     // return 0;
+// }
 
 /*
 Description:
@@ -218,7 +214,10 @@ Arguments:
 Return value:
     Returns NULL on failure, a FILE pointer on success
 */
-FILE *tcp_client_open_file(char *file_name) {}
+FILE *tcp_client_open_file(char *file_name) {
+    FILE *f = fopen(file_name, "r");
+    return f;
+}
 
 /*
 Description:
@@ -233,7 +232,18 @@ Arguments:
 Return value:
     Returns -1 on failure, the number of characters read on success
 */
-int tcp_client_get_line(FILE *fd, char **action, char **message) {}
+int tcp_client_get_line(FILE *fd, char **action, char **message) {
+    char s;
+    while((s=fgetc(fd))!=EOF) {
+      printf("%c",s);
+    }
+    action = malloc(sizeof(char)*(13+1));
+    message = malloc(sizeof(char)*(1024+1));
+    int read = fscanf(fd, "%s %[^\n]", *action, *message);
+    log_info("Chars read: %d\n", read);
+    log_info("Action: %s, Message: %s\n", action, message);
+    return read;
+}
 
 /*
 Description:
@@ -243,4 +253,6 @@ Arguments:
 Return value:
     Returns a 1 on failure, 0 on success
 */
-int tcp_client_close_file(FILE *fd) {}
+int tcp_client_close_file(FILE *fd) {
+    return fclose(fd);
+}
