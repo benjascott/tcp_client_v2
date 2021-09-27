@@ -15,7 +15,7 @@
 #include <unistd.h>
 
 #define TCP_CLIENT_BAD_SOCKET -1
-#define TCP_CLIENT_DEFAULT_PORT "8080"
+#define TCP_CLIENT_DEFAULT_PORT "8081"
 #define TCP_CLIENT_DEFAULT_HOST "localhost"
 
 /*
@@ -26,9 +26,6 @@ typedef struct Config {
     char *host;
     char *file;
 } Config;
-
-
-void tcp_client_allocate_config(Config *config);
 
 /*
 Description:

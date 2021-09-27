@@ -22,6 +22,8 @@ void tcp_client_allocate_config(Config *config) {
     log_trace("memory allocated");
 }
 
+//this coment is ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss ssssssssssssss ssssssssssss ssssssssssssssssuper longggggggggggg
+
 /*
 Description:
     Parses the commandline arguments and options given to the program.
@@ -34,6 +36,8 @@ Return value:
 */
 int tcp_client_parse_arguments(int argc, char *argv[], Config *config) {
     int c;
+
+    tcp_client_allocate_config(config);
 
     strcpy(config->port, TCP_CLIENT_DEFAULT_PORT);
     strcpy(config->host, TCP_CLIENT_DEFAULT_HOST);
@@ -74,7 +78,7 @@ int tcp_client_parse_arguments(int argc, char *argv[], Config *config) {
         }
     }
     if (optind < argc) {
-        strcpy(config->file, argv[optind++]);
+        config->file = argv[optind];
         log_info("File: %s", config->file);    
     }
 
@@ -171,22 +175,70 @@ int tcp_client_send_request(int sockfd, char *action, char *message) {
 
 /*
 Description:
-    Receives the response from the server. The caller must provide an already allocated buffer.
+    Receives the response from the server. The caller must provide a function pointer that handles
+the response and returns a true value if all responses have been handled, otherwise it returns a
+    false value. After the response is handled by the handle_response function pointer, the response
+    data can be safely deleted. The string passed to the function pointer must be null terminated.
 Arguments:
     int sockfd: Socket file descriptor
-    char *buf: An already allocated buffer to receive the response in
-    int buf_size: The size of the allocated buffer
+    int (*handle_response)(char *): A callback function that handles a response
 Return value:
     Returns a 1 on failure, 0 on success
 */
-// int tcp_client_receive_response(int sockfd, int (*handle_response)(char *)) {
-//     // log_info("Receiving data from the server");
-//     // int numbytes = recv(sockfd, buf, buf_size, 0);
-//     // if(numbytes == -1) {
-//     //     return 1;
-//     // }
-//     // return 0;
-// }
+int tcp_client_receive_response(int sockfd, int (*handle_response)(char *)) {
+    char * space_position = 0;
+    int last_message = 0;
+    size_t numBytesInBuffer = 0;
+    size_t bufferSize = 1024;
+    char *buffer;
+    int messageLength = 0;
+    
+    char *response_message = NULL;
+
+    buffer = malloc(sizeof(char)*bufferSize);
+    buffer[0] = '\0';
+    // while there are more messages to be received, 
+    // receive and process the messages
+    log_trace("Beginning to receive messages.");
+    while(!last_message) {
+        //allocate buffer space
+        if(numBytesInBuffer > bufferSize/2) {
+            bufferSize *= 2;
+            buffer = realloc(buffer, bufferSize);
+        }
+        log_info("Continue receiving data %d", sockfd);
+
+        int numbytes = recv(sockfd, buffer+numBytesInBuffer, bufferSize-numBytesInBuffer-1, 0);
+        numBytesInBuffer += numbytes;
+        buffer[numBytesInBuffer] = '\0';
+        log_info("Number of bytes in the buffer: %zu", numBytesInBuffer);
+
+        while((space_position = strchr(buffer, ' ')) != NULL) {
+            log_info("Contents of buffer: %s", buffer);
+            log_info("Not me");
+            sscanf(buffer, "%d", &messageLength);
+            log_info("Whats up dog");
+            log_info("Message length is: %zu", messageLength);
+            if(numBytesInBuffer - (space_position+1-buffer)) {
+                response_message = malloc(sizeof(char)*(messageLength+1));
+                strncpy(response_message, space_position+1, messageLength);
+                response_message[messageLength] = '\0';
+                last_message = handle_response(response_message);
+                free(response_message);
+                numBytesInBuffer -= (space_position-buffer)+1+messageLength;
+                log_trace("New number of bytes in buffer: %zu", numBytesInBuffer);
+                log_info("Buffer: %s, New buffer: %s", buffer, space_position+1+messageLength);
+                char *tempString = malloc(sizeof(char)*(numBytesInBuffer+1));
+                strcpy(tempString, space_position+1+messageLength);
+                strcpy(buffer, tempString);
+                free(tempString);
+                log_info("Got it");
+            }
+        }
+    }
+    free(buffer);
+    return 0;
+}
 
 /*
 Description:
@@ -215,8 +267,11 @@ Return value:
     Returns NULL on failure, a FILE pointer on success
 */
 FILE *tcp_client_open_file(char *file_name) {
-    FILE *f = fopen(file_name, "r");
-    return f;
+    log_info("File name: %s", file_name);
+    if(strcmp(file_name,"-") == 0) {
+        return stdin;
+    }
+    return fopen(file_name, "r");
 }
 
 /*
@@ -233,15 +288,20 @@ Return value:
     Returns -1 on failure, the number of characters read on success
 */
 int tcp_client_get_line(FILE *fd, char **action, char **message) {
-    char s;
-    while((s=fgetc(fd))!=EOF) {
-      printf("%c",s);
+
+    *action = malloc(sizeof(char)*(1024));
+    *message = malloc(sizeof(char)*(1024));
+    char *stringLine = NULL;
+    size_t readIn = 1024;
+    ssize_t charCount;
+
+    if((charCount = getline(&stringLine, &readIn, fd)) == -1) {
+        log_info("No line was read from file, program likely reached the end of the file.");
+        return -1;
     }
-    action = malloc(sizeof(char)*(13+1));
-    message = malloc(sizeof(char)*(1024+1));
-    int read = fscanf(fd, "%s %[^\n]", *action, *message);
-    log_info("Chars read: %d\n", read);
-    log_info("Action: %s, Message: %s\n", action, message);
+    stringLine[charCount-1] = '\0';
+    log_trace("String read from the file is: %s", stringLine);
+    int read = sscanf(stringLine, "%s %[^\n]", *action, *message);
     return read;
 }
 
