@@ -22,8 +22,6 @@ void tcp_client_allocate_config(Config *config) {
     log_trace("memory allocated");
 }
 
-//this coment is ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss ssssssssssssss ssssssssssss ssssssssssssssssuper longggggggggggg
-
 /*
 Description:
     Parses the commandline arguments and options given to the program.
